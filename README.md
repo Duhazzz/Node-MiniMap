@@ -1,8 +1,6 @@
 
 
-
-https://github.com/user-attachments/assets/45d1f691-c0c0-4194-a58d-f7a2debf5183
-
+https://github.com/user-attachments/assets/6be451a2-bf31-4a0b-b535-198513f7f083
 
 
 # **Node MiniMap Add-on Documentation**
