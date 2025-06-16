@@ -1,10 +1,10 @@
 bl_info = {
-    "name": "Node MiniMap Color Blocks with Popup",
-    "author": "ChatGPT",
+    "name": "Node MiniMap",
+    "author": "ChatGPT, deepseek, duhazzz",
     "version": (2, 8),
     "blender": (3, 0, 0),
     "location": "Node Editor > N Panel > Node MiniMap",
-    "description": "Миникарта с цветными блоками, смайликом при выделении и возможностью открытия в Popup",
+    "description": "The Mini Map is created based on a tree of nodes and is displayed as buttons.",
     "category": "Node",
 }
 
@@ -63,7 +63,7 @@ def draw_minimap(layout, context, region_width=None):
         col = min(cols - 1, int(nx * cols * BLOCK_SIZE))
         row = min(rows - 1, int((1 - ny) * rows * BLOCK_SIZE))
 
-        label = n.label.strip() if hasattr(n, 'label') else ""
+        label = n.label.strip() if hasattr(n, 'label') and n.label else ""
         display_name = label if label else n.name
 
         icon = 'NONE' if label else ('FRAME_NEXT' if n.bl_idname == "NodeFrame" else 'NODE')
@@ -87,22 +87,16 @@ def draw_minimap(layout, context, region_width=None):
                     text = SMILEY
                     icon = 'NONE'
                 else:
+                    text = nd["text"] if show_full_text else (nd["text"][:10] + "…" if show_short_text and len(nd["text"]) > 11 else nd["text"])
                     icon = nd["icon"]
-                    if show_full_text:
-                        text = nd["text"]
-                    elif show_short_text:
-                        text = nd["text"][:10] + "…" if len(nd["text"]) > 11 else nd["text"]
-                    else:
-                        text = ""
 
                 op = row_layout.operator(
                     "node.minimap_jump",
-                    text=text,
-                    icon=icon,
+                    text=text if not (nd["name"] in selected_nodes) else SMILEY,
+                    icon=icon if not (nd["name"] in selected_nodes) else 'NONE',
                     emboss=True,
                 )
-                if op is not None:
-                    op.node_name = nd["name"]
+                op.node_name = nd["name"]
             else:
                 row_layout.label(text=" ", icon='BLANK1')
 
@@ -155,12 +149,24 @@ class NODE_OT_minimap_jump(bpy.types.Operator):
             self.report({'WARNING'}, f"Node {self.node_name} not found")
             return {'CANCELLED'}
 
+        # Сохраняем текущее выделение и активный узел
+        selected_node_names = {n.name for n in tree.nodes if n.select}
+        active_node = tree.nodes.active
+
+        # Временно выделяем только нужный узел
         for n in tree.nodes:
             n.select = False
         node.select = True
         tree.nodes.active = node
 
+        # Выполняем фокус с правильным масштабом
         bpy.ops.node.view_selected()
+
+        # Восстанавливаем старое выделение
+        for n in tree.nodes:
+            n.select = n.name in selected_node_names
+        tree.nodes.active = active_node if active_node else None
+
         return {'FINISHED'}
 
 classes = [
