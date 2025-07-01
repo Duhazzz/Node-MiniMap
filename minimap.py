@@ -1,10 +1,10 @@
 bl_info = {
-    "name": "Node MiniMap",
+    "name": "Node MiniMap Popup",
     "author": "ChatGPT, deepseek, duhazzz",
-    "version": (2, 8),
+    "version": (2, 9),
     "blender": (3, 0, 0),
     "location": "Node Editor > N Panel > Node MiniMap",
-    "description": "The Mini Map is created based on a tree of nodes and is displayed as buttons.",
+    "description": "Shows node minimap in popup when activated from N Panel",
     "category": "Node",
 }
 
@@ -21,29 +21,14 @@ def norm(val, min_val, max_val):
         return 0.5
     return (val - min_val) / (max_val - min_val)
 
-def draw_minimap(layout, context, region_width=None):
-    if region_width is None:
-        region_width = getattr(context.region, "width", 600)
-
-    cols = GRID_COLS
-    rows = GRID_ROWS
-    cell_width = region_width // cols
-
-    show_full_text = cell_width >= 60
-    show_short_text = cell_width >= 35
-
+def analyze_nodes(context):
     space = context.space_data
     tree = space.edit_tree
 
-    if not tree:
-        layout.label(text="No node tree open")
-        return
+    if not tree or not tree.nodes:
+        return None
 
     nodes = tree.nodes
-    if not nodes:
-        layout.label(text="No nodes")
-        return
-
     selected_nodes = {n.name for n in nodes if n.select}
 
     min_x = min(n.location.x for n in nodes)
@@ -60,8 +45,8 @@ def draw_minimap(layout, context, region_width=None):
         nx = norm_x(n.location.x + n.width / 2)
         ny = norm_y(n.location.y - n.height / 2)
 
-        col = min(cols - 1, int(nx * cols * BLOCK_SIZE))
-        row = min(rows - 1, int((1 - ny) * rows * BLOCK_SIZE))
+        col = min(GRID_COLS - 1, int(nx * GRID_COLS * BLOCK_SIZE))
+        row = min(GRID_ROWS - 1, int((1 - ny) * GRID_ROWS * BLOCK_SIZE))
 
         label = n.label.strip() if hasattr(n, 'label') and n.label else ""
         display_name = label if label else n.name
@@ -73,27 +58,34 @@ def draw_minimap(layout, context, region_width=None):
             "label": label,
             "text": display_name,
             "icon": icon,
+            "selected": n.name in selected_nodes,
         })
 
-    for row in range(rows):
+    return {
+        "cell_map": cell_map,
+        "show_full_text": True,  # Always show full text in popup
+    }
+
+def draw_minimap(layout, analysis_result):
+    if analysis_result is None:
+        layout.label(text="No nodes to display")
+        return
+
+    cell_map = analysis_result["cell_map"]
+    show_full_text = analysis_result["show_full_text"]
+
+    for row in range(GRID_ROWS):
         row_layout = layout.row(align=True)
-        for col in range(cols):
+        for col in range(GRID_COLS):
             nodes_in_cell = cell_map.get((col, row), [])
             if nodes_in_cell:
                 nodes_sorted = sorted(nodes_in_cell, key=lambda n: 0 if n["label"] else 1)
                 nd = nodes_sorted[0]
 
-                if nd["name"] in selected_nodes:
-                    text = SMILEY
-                    icon = 'NONE'
-                else:
-                    text = nd["text"] if show_full_text else (nd["text"][:10] + "…" if show_short_text and len(nd["text"]) > 11 else nd["text"])
-                    icon = nd["icon"]
-
                 op = row_layout.operator(
                     "node.minimap_jump",
-                    text=text if not (nd["name"] in selected_nodes) else SMILEY,
-                    icon=icon if not (nd["name"] in selected_nodes) else 'NONE',
+                    text=SMILEY if nd["selected"] else nd["text"],
+                    icon='NONE' if nd["selected"] else nd["icon"],
                     emboss=True,
                 )
                 op.node_name = nd["name"]
@@ -102,19 +94,19 @@ def draw_minimap(layout, context, region_width=None):
 
 class NODE_OT_minimap_popup(bpy.types.Operator):
     bl_idname = "node.minimap_popup"
-    bl_label = "Node MiniMap Popup"
-    bl_description = "Popup with Node MiniMap"
+    bl_label = "Node MiniMap"
+    bl_description = "Show node minimap in popup"
     bl_options = {'REGISTER', 'UNDO'}
 
     def draw(self, context):
-        draw_minimap(self.layout, context, region_width=600)
+        analysis_result = analyze_nodes(context)
+        draw_minimap(self.layout, analysis_result)
 
     def execute(self, context):
         return {'FINISHED'}
 
     def invoke(self, context, event):
-        context.window_manager.invoke_popup(self, width=600)
-        return {'RUNNING_MODAL'}
+        return context.window_manager.invoke_popup(self, width=600)
 
 class NODE_PT_minimap_panel(bpy.types.Panel):
     bl_space_type = 'NODE_EDITOR'
@@ -124,10 +116,7 @@ class NODE_PT_minimap_panel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-
-        layout.operator("node.minimap_popup", text="Open in Popup", icon='WINDOW')
-        layout.separator()
-        draw_minimap(layout, context)
+        layout.operator("node.minimap_popup", text="Show MiniMap", icon='WINDOW')
 
 class NODE_OT_minimap_jump(bpy.types.Operator):
     bl_idname = "node.minimap_jump"
@@ -149,20 +138,20 @@ class NODE_OT_minimap_jump(bpy.types.Operator):
             self.report({'WARNING'}, f"Node {self.node_name} not found")
             return {'CANCELLED'}
 
-        # Сохраняем текущее выделение и активный узел
+        # Save current selection
         selected_node_names = {n.name for n in tree.nodes if n.select}
         active_node = tree.nodes.active
 
-        # Временно выделяем только нужный узел
+        # Select only the target node
         for n in tree.nodes:
             n.select = False
         node.select = True
         tree.nodes.active = node
 
-        # Выполняем фокус с правильным масштабом
+        # Focus on the node
         bpy.ops.node.view_selected()
 
-        # Восстанавливаем старое выделение
+        # Restore selection
         for n in tree.nodes:
             n.select = n.name in selected_node_names
         tree.nodes.active = active_node if active_node else None
